@@ -125,14 +125,9 @@ export default function Prefix({ onClose }) {
   const updatePrefix = (key, value) => {
     setPrefixes((currentPrefixes) => ({
       ...currentPrefixes,
-      [key]: value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 12),
+      [key]: value,
     }));
 
-    setToast(null);
-  };
-
-  const resetPrefixes = () => {
-    setPrefixes({ ...savedPrefixes });
     setToast(null);
   };
 
@@ -152,6 +147,9 @@ export default function Prefix({ onClose }) {
       setPrefixes(updated);
       setSavedPrefixes(updated);
       showToast(response.message || 'Document prefixes saved successfully.');
+      window.setTimeout(() => {
+        onClose();
+      }, 800);
     } catch (err) {
       showToast(
         err.response?.data?.message || 'Server error occurred while saving prefixes.',
@@ -259,12 +257,12 @@ export default function Prefix({ onClose }) {
         <footer className="flex min-h-16 items-center justify-end gap-3 border-t border-stone-100 bg-stone-50/40 px-5 py-4 sm:px-7">
           
           <Button
-  variant="outline"
-  onClick={resetPrefixes}
-  disabled={loading || saving}
->
-  Reset
-</Button>
+            variant="outline"
+            onClick={onClose}
+            disabled={saving}
+          >
+            Cancel
+          </Button>
 
 <Button
   onClick={savePrefixes}

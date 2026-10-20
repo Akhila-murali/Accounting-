@@ -1,21 +1,19 @@
 
-const PRODUCT_UNIT_VALUES = {
-  NONE: 0,
-  PCS: 1,
-  BOX: 2,
-  KG: 3,
-  MTR: 4,
-  LTR: 5,
-  SET: 6,
-  DOZEN: 7,
-  BUNDLE: 8,
-};
+const getEnumValue = (value, options, firstEnumValue) => {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
 
-const PAYMENT_TYPE_VALUES = {
-  Cash: 1,
-  StrideindBankAccount: 2,
-  UPI: 3,
-  Cheque: 4,
+  const numericValue = Number(value);
+  if (Number.isInteger(numericValue)) {
+    return numericValue;
+  }
+
+  const optionIndex = options.findIndex(
+    (option) => String(option.value) === String(value)
+  );
+
+  return optionIndex >= 0 ? optionIndex + firstEnumValue : null;
 };
 
 const toNullableInteger = (value) => {
@@ -40,12 +38,25 @@ const toNumber = (value, fallback = 0) => {
   return Number.isFinite(number) ? number : fallback;
 };
 
-const serializeItem = (item) => ({
+const getQuotationId = (value, quotations) => {
+  const quotationId = toNullableInteger(value);
+
+  if (quotationId === null) return null;
+
+  return quotations.some(
+    (quotation) => Number(quotation.id) === quotationId
+  )
+    ? quotationId
+    : null;
+};
+
+const serializeItem = (item, units) => ({
   itemName: item.itemName ?? '',
   description: item.description ?? '',
   partNumber: item.partNumber ?? '',
+  hsnSac: item.hsnSac ?? item.hsnsac ?? '',
   quantity: toNumber(item.quantity, 0),
-  unit: PRODUCT_UNIT_VALUES[item.unit] ?? 0,
+  unit: getEnumValue(item.unit, units, 0) ?? 0,
   pricePerUnit: toNumber(item.price, 0),
   gstPercentage: toNumber(item.tax, 0),
   cessPercentage: toNumber(item.cess, 0),
@@ -67,21 +78,25 @@ export const buildProformaDraftContent = ({
   items,
   summary,
   selectedTerms,
+  units = [],
+  paymentTypes = [],
+  quotations = [],
 }) => {
   const serializedItems = items
     .filter((item) =>
       String(item.itemName ?? '').trim() !== '' ||
       String(item.description ?? '').trim() !== '' ||
       String(item.partNumber ?? '').trim() !== '' ||
+      String(item.hsnSac ?? item.hsnsac ?? '').trim() !== '' ||
       (Array.isArray(item.serialNumbers) &&
         item.serialNumbers.length > 0) ||
       toNumber(item.price) !== 0 ||
       toNumber(item.tax) !== 0 ||
       toNumber(item.cess) !== 0 ||
       toNumber(item.quantity, 1) !== 1 ||
-      item.unit !== 'NONE'
+      (getEnumValue(item.unit, units, 0) ?? 0) !== 0
     )
-    .map(serializeItem);
+    .map((item) => serializeItem(item, units));
 
   return {
     customerCompanyId: toNullableInteger(
@@ -95,12 +110,12 @@ export const buildProformaDraftContent = ({
       ? `${formData.invoiceDate}T00:00:00`
       : '',
     validityPeriod: toNumber(formData.validityPeriod, 30),
-    quotationId: toNullableInteger(
-      formData.proposalReference
+    quotationId: getQuotationId(
+      formData.proposalReference,
+      quotations
     ),
     description: formData.description ?? '',
-    paymentType:
-      PAYMENT_TYPE_VALUES[formData.paymentType] ?? null,
+    paymentType: getEnumValue(formData.paymentType, paymentTypes, 1),
     totalDiscountType:
       summary.discountType === 'Percentage' ? 2 : 1,
     totalDiscountValue: toNumber(

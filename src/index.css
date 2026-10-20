@@ -51,6 +51,52 @@
   animation: serial-border-run 1.6s linear infinite;
 }
 
+@keyframes edit-invoice-attention {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(140, 103, 35, 0);
+  }
+  50% {
+    transform: scale(1.06);
+    box-shadow:
+      0 0 0 8px rgba(228, 196, 119, 0.48),
+      0 8px 22px rgba(114, 82, 26, 0.3);
+  }
+}
+
+.edit-invoice-attention {
+  position: relative;
+  z-index: 30;
+  animation: edit-invoice-attention 0.85s ease-in-out 2;
+}
+
+@keyframes edit-draft-attention {
+  0%, 100% {
+    background-color: var(--color-brand-gold);
+    color: white;
+    box-shadow: 0 0 0 0 rgba(140, 103, 35, 0);
+  }
+  50% {
+    background-color: var(--color-brand-gold-highlight);
+    color: var(--color-brand-dark);
+    box-shadow: 0 0 0 6px rgba(228, 196, 119, 0.42);
+  }
+}
+
+.edit-draft-attention {
+  position: relative;
+  z-index: 30;
+  animation: edit-draft-attention 0.8s ease-in-out 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .edit-invoice-attention,
+  .edit-draft-attention {
+    animation: none;
+    box-shadow: 0 0 0 5px rgba(228, 196, 119, 0.45);
+  }
+}
+
 @layer base {
   html,
   body {
@@ -80,6 +126,72 @@
     caret-color: var(--color-text-main);
     transition: background-color 5000s ease-in-out 0s;
   }
+}
+
+/* Main page scrollbar theme */
+.app-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-brand-gold) var(--color-brand-gold-light);
+}
+
+/* Do not pass the page scrollbar theme to tables or nested scroll areas. */
+.app-scrollbar * {
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+}
+
+/* Keep the invoice table scrollbar in its original neutral grey style. */
+.invoice-table-scroll {
+  scrollbar-width: auto;
+  scrollbar-color: #8b8b8b #f1f1f1;
+}
+
+.invoice-table-scroll::-webkit-scrollbar {
+  height: 12px;
+}
+
+.invoice-table-scroll::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.invoice-table-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid #f1f1f1;
+  border-radius: 999px;
+  background: #8b8b8b;
+}
+
+.invoice-table-scroll::-webkit-scrollbar-thumb:hover {
+  background: #6b6b6b;
+}
+
+.items-field-hover input,
+.items-field-hover select,
+.items-field-hover button[aria-haspopup='listbox'] {
+  transition: border-color 150ms ease;
+}
+
+.items-field-hover input:hover,
+.items-field-hover select:hover,
+.items-field-hover button[aria-haspopup='listbox']:hover {
+  border-color: var(--color-brand-gold);
+}
+
+.app-scrollbar::-webkit-scrollbar {
+  width: 10px;
+}
+
+.app-scrollbar::-webkit-scrollbar-track {
+  background: var(--color-brand-gold-light);
+}
+
+.app-scrollbar::-webkit-scrollbar-thumb {
+  border: 2px solid var(--color-brand-gold-light);
+  border-radius: 999px;
+  background: var(--color-brand-gold);
+}
+
+.app-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--color-brand-gold-hover);
 }
 
 .global-wrapper {

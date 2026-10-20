@@ -1,4 +1,4 @@
-import { Fragment, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { Hash, Plus, Trash2 } from 'lucide-react';
 
 import Dropdown from '../common/Dropdown.jsx';
@@ -36,6 +36,25 @@ export default function PurchaseItems({
   onOpenSerials,
   validationMessage,
 }) {
+  const tableScrollRef = useRef(null);
+
+  useEffect(() => {
+    const container = tableScrollRef.current;
+    if (!container) return undefined;
+
+    const handleWheel = (event) => {
+      if (container.scrollWidth <= container.clientWidth) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      container.scrollLeft += event.deltaX || event.deltaY;
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+
+    return () => container.removeEventListener('wheel', handleWheel);
+  }, []);
+
   const headings = [
     '#',
     'Item',
@@ -53,7 +72,7 @@ export default function PurchaseItems({
   ];
 
   return (
-    <section className="rounded-xl border border-stone-200 bg-white p-4">
+    <section className="items-field-hover rounded-xl border border-stone-200 bg-white p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="m-0 text-sm font-bold text-stone-900">
           Items
@@ -81,13 +100,8 @@ export default function PurchaseItems({
       </div>
 
         <div
+          ref={tableScrollRef}
           className="overflow-x-auto pb-2"
-          onWheel={(event) => {
-            const container = event.currentTarget;
-            if (container.scrollWidth <= container.clientWidth) return;
-
-            container.scrollLeft += event.deltaY;
-          }}
         >
           <table className="w-full min-w-[1050px] border-collapse text-left text-xs">
             <thead className="bg-stone-50 text-stone-500">

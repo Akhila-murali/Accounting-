@@ -433,7 +433,7 @@ setMetadata(mappedDraft.metadata);
         }}
       />
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
         <div>
           {(quotationId || selectedDraftId) && (
             <Button variant="unstyled"
@@ -459,7 +459,7 @@ setMetadata(mappedDraft.metadata);
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto xl:justify-end">
           {(saveStatus === 'unsaved' || draftId) && (
             <div className="flex items-center gap-2 text-xs text-stone-500">
               <span
@@ -533,7 +533,7 @@ setMetadata(mappedDraft.metadata);
         {isInformationOpen && (
           <div className="px-4 pb-4">
             <fieldset className="border-0 p-0 m-0">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-2">
                 <CoverInformation
                   data={defaultData}
                   onChange={

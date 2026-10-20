@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown } from 'lucide-react';
+import { Check, ChevronDown, X } from 'lucide-react';
 
 export default function Dropdown({
   name,
@@ -9,7 +9,9 @@ export default function Dropdown({
   placeholder = 'Select an option',
   emptyMessage,
   icon: Icon,
-  hasError = false
+  hasError = false,
+  onClear,
+  menuPlacement = 'bottom',
 }) {
   const [open, setOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
@@ -48,7 +50,19 @@ export default function Dropdown({
   const toggleDropdown = () => {
     if (!open) {
       const rect = rootRef.current.getBoundingClientRect();
-      setMenuPosition({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+      setMenuPosition(
+        menuPlacement === 'top'
+          ? {
+              bottom: window.innerHeight - rect.top + 4,
+              left: rect.left,
+              width: rect.width,
+            }
+          : {
+              top: rect.bottom + 4,
+              left: rect.left,
+              width: rect.width,
+            }
+      );
       const selectedIndex = options.findIndex(
         (option) => String(option.value) === String(value)
       );
@@ -103,11 +117,29 @@ export default function Dropdown({
         <span className={`flex-1 min-w-0 text-left truncate ${value ? '' : 'text-stone-400'}`}>
           {selectedOption?.label || value || placeholder}
         </span>
-        <ChevronDown
-          size={16}
-          className={`shrink-0 text-stone-400 transition-transform ${open ? 'rotate-180' : ''}`}
-        />
+        {!(onClear && value) && (
+          <ChevronDown
+            size={16}
+            className={`shrink-0 text-stone-400 transition-transform ${open ? 'rotate-180' : ''}`}
+          />
+        )}
       </button>
+
+      {onClear && value && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onClear();
+            setOpen(false);
+          }}
+          aria-label={`Clear ${name}`}
+          title="Clear selection"
+          className="absolute right-3 top-1/2 z-10 flex -translate-y-1/2 items-center justify-center border-0 bg-transparent p-0.5 text-brand-gold transition-colors hover:text-brand-gold-hover"
+        >
+          <X size={16} />
+        </button>
+      )}
 
       {open && (
         <div

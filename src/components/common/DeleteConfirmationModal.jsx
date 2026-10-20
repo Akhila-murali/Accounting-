@@ -5,15 +5,24 @@ export default function DeleteConfirmationModal({
   title,
   message,
   confirmLabel = 'Delete',
+  cancelLabel = 'Cancel',
+  submittingLabel = 'Deleting...',
   isDeleting = false,
+  tone = 'danger',
   onCancel,
   onConfirm,
 }) {
+  const isBrand = tone === 'brand';
+
   return (
     <div className="fixed inset-0 bg-stone-900/40 z-[100] flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl border border-stone-200/60 shadow-xl w-full max-w-md p-6 animate-in fade-in zoom-in-95 duration-150">
         <div className="flex items-start gap-4">
-          <div className="w-10 h-10 rounded-xl bg-rose-50 flex items-center justify-center text-rose-500 shrink-0">
+          <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+            isBrand
+              ? 'bg-brand-gold-light text-brand-gold'
+              : 'bg-rose-50 text-rose-500'
+          }`}>
             <Trash2 size={20} />
           </div>
           <div className="text-left">
@@ -22,9 +31,9 @@ export default function DeleteConfirmationModal({
           </div>
         </div>
         <div className="mt-6 flex items-center justify-end gap-3">
-          <Button variant="outline" onClick={onCancel} disabled={isDeleting}>Cancel</Button>
-          <Button variant="danger" onClick={onConfirm} disabled={isDeleting}>
-            {isDeleting ? <><Loader2 size={14} className="animate-spin" /><span>Deleting...</span></> : confirmLabel}
+          <Button variant="outline" onClick={onCancel} disabled={isDeleting}>{cancelLabel}</Button>
+          <Button variant={isBrand ? 'primary' : 'danger'} onClick={onConfirm} disabled={isDeleting}>
+            {isDeleting ? <><Loader2 size={14} className="animate-spin" /><span>{submittingLabel}</span></> : confirmLabel}
           </Button>
         </div>
       </div>

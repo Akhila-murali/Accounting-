@@ -1,26 +1,39 @@
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useParams } from 'react-router-dom';
-import { Save, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Pencil, Save, X } from 'lucide-react';
 
 import Button from '../../components/common/Button.jsx';
+import DeleteConfirmationModal from '../../components/common/DeleteConfirmationModal.jsx';
 import Toast from '../../components/common/Toast.jsx';
 import InvoiceInformation from '../../components/invoice/InvoiceInformation.jsx';
 import InvoiceItems from '../../components/invoice/InvoiceItems.jsx';
+import InvoiceAttachments from '../../components/invoice/InvoiceAttachments.jsx';
 import InvoiceSummary from '../../components/invoice/InvoiceSummary.jsx';
 import InvoiceTerms from '../../components/invoice/InvoiceTerms.jsx';
 
 import { getCompanies } from '../../services/company.js';
 import { getGstSlabs } from '../../services/pricing.js';
 import { getPurchaseLookups } from '../../services/purchase.js';
-import { getQuotations } from '../../services/quotation.js';
 import { getDocumentPrefixes } from '../../services/prefix.js';
 import { getAllProducts } from '../../services/product.js';
 import {
   getProformaInvoiceDraftById,
   updateProformaInvoiceDraft,
   commitProformaInvoiceDraft,
+  discardProformaInvoiceDraft,
+  createProformaInvoiceEditDraft,
+  applyProformaInvoiceDraft,
+  uploadProformaDraftAttachment,
+  getProformaDraftAttachments,
+  downloadProformaDraftAttachment,
+  deleteProformaDraftAttachment,
+  uploadProformaInvoiceAttachment,
+  getProformaInvoiceAttachments,
+  downloadProformaInvoiceAttachment,
+  deleteProformaInvoiceAttachment,
   getProformaInvoice,
+  getProformaQuotationReferences,
 } from '../../services/proformaInvoice.js';
 
 import { buildProformaDraftContent } from '../../utils/proformaDraftMapper.js';
@@ -36,34 +49,30 @@ const createInvoiceItem = () => ({
   serialNumbers: [],
   description: '',
   partNumber: '',
+  hsnSac: '',
   quantity: 1,
-  unit: 'NONE',
+  unit: '',
   price: 0,
   tax: 0,
   cess: 0,
 });
 
-// Backend ProductUnit enum -> Frontend dropdown
-const PRODUCT_UNIT_NAMES = {
-  0: 'NONE',
-  1: 'PCS',
-  2: 'BOX',
-  3: 'KG',
-  4: 'MTR',
-  5: 'LTR',
-  6: 'SET',
-  7: 'DOZEN',
-  8: 'BUNDLE',
+const restoreLookupValue = (value, options, firstEnumValue) => {
+  if (value === null || value === undefined || value === '') return '';
+
+  const directOption = options.find(
+    (option) => String(option.value) === String(value)
+  );
+  if (directOption) return directOption.value;
+
+  const enumIndex = Number(value) - firstEnumValue;
+  return Number.isInteger(enumIndex) && options[enumIndex]
+    ? options[enumIndex].value
+    : '';
 };
 
-
-const restoreInvoiceItem = (item) => {
+const restoreInvoiceItem = (item, units) => {
   const rawUnit = item.unit ?? 0;
-
-  const unit =
-    typeof rawUnit === 'number'
-      ? PRODUCT_UNIT_NAMES[rawUnit] ?? 'NONE'
-      : String(rawUnit).toUpperCase();
 
   return {
     id: crypto.randomUUID(),
@@ -73,8 +82,9 @@ const restoreInvoiceItem = (item) => {
       : [],
     description: item.description ?? '',
     partNumber: item.partNumber ?? '',
+    hsnSac: item.hsnSac ?? item.hsnsac ?? '',
     quantity: item.quantity ?? 1,
-    unit,
+    unit: restoreLookupValue(rawUnit, units, 0),
     price: item.pricePerUnit ?? 0,
     tax: item.gstPercentage ?? 0,
     cess: item.cessPercentage ?? 0,
@@ -90,33 +100,107 @@ const restoreDiscountType = (value) => {
   return 'Amount';
 };
 
-// Backend PaymentType enum -> Frontend dropdown
+// Normalize draft and saved-invoice responses into the same form model.
+// Keeping this mapping in one place makes loading work like Purchase.jsx.
+const restoreInvoiceContent = (
+  content,
+  {
+    savedInvoice = false,
+    units = [],
+    paymentTypes = [],
+    quotations = [],
+  } = {}
+) => {
+  const quotationId = content.quotationId == null
+    ? ''
+    : String(content.quotationId);
+  const hasValidQuotation = quotationId === '' || quotations.some(
+    (quotation) => String(quotation.id) === quotationId
+  );
 
-const PAYMENT_TYPE_NAMES = {
-  1: 'Cash',
-  2: 'StrideindBankAccount',
-  3: 'UPI',
-  4: 'Cheque',
+  const formData = {
+    customerCompanyId: content.customerCompanyId == null ? '' : String(content.customerCompanyId),
+    billingName: content.billingName ?? '',
+    phoneNo: content.phoneNo ?? '',
+    gstNo: content.gstNo ?? '',
+    stateOfSupply: content.stateOfSupply ?? '',
+    invoiceDate: content.invoiceDate?.slice(0, 10) ?? getToday(),
+    validityPeriod: content.validityPeriod ?? 30,
+    description: content.description ?? '',
+    paymentType:
+      restoreLookupValue(content.paymentType, paymentTypes, 1) ||
+      (!savedInvoice ? paymentTypes[0]?.value ?? '' : ''),
+    proposalReference: hasValidQuotation ? quotationId : '',
+  };
+
+  if (savedInvoice) {
+    formData.prefix = content.prefix;
+    formData.invoiceNumber = content.invoiceNumber ?? content.proformaInvoiceNumber ?? '';
+  }
+
+  const items = Array.isArray(content.items) && content.items.length
+    ? content.items.map((item) => restoreInvoiceItem(item, units))
+    : [createInvoiceItem()];
+  const selectedTerms = savedInvoice
+    ? (content.termsAndConditions || [])
+    : Array.isArray(content.termsAndConditions)
+      ? content.termsAndConditions.map((term) => ({
+        id: term.termId ?? term.id ?? crypto.randomUUID(),
+        termId: term.termId ?? null,
+        title: term.title ?? '',
+        bullets: Array.isArray(term.bullets) ? term.bullets : [],
+      }))
+    : [];
+  const summary = {
+    discountValue: content.totalDiscountValue ?? 0,
+    discountType: restoreDiscountType(content.totalDiscountType),
+  };
+  return { formData, items, selectedTerms, summary };
 };
 
-const restorePaymentType = (value) => {
-  if (value === null || value === undefined || value === '') {
-    return '';
+// Return a message instead of mixing validations into the API submission.
+const validateInvoiceContent = (content) => {
+  if (!Number.isInteger(content.customerCompanyId) || content.customerCompanyId <= 0) {
+    return 'Select a customer before finalizing.';
   }
-
-  if (typeof value === 'number') {
-    return PAYMENT_TYPE_NAMES[value] ?? '';
+  if (!content.invoiceDate || Number(content.validityPeriod) < 1 || Number(content.validityPeriod) > 365) {
+    return 'Enter a valid invoice date and validity period (1–365 days).';
   }
-
-  if (/^[1-4]$/.test(String(value))) {
-    return PAYMENT_TYPE_NAMES[Number(value)] ?? '';
+  if (!Array.isArray(content.items) || content.items.length === 0 ||
+      content.items.some((item) => !item.itemName?.trim() || item.itemName.length > 200 ||
+        !item.hsnSac?.trim() || !(item.quantity >= 0.001) || !(item.pricePerUnit >= 0) ||
+        !(item.gstPercentage >= 0 && item.gstPercentage <= 100) ||
+        !(item.cessPercentage >= 0 && item.cessPercentage <= 100))) {
+    return 'Add at least one valid item with name, HSN/SAC, quantity, price, GST and Cess.';
   }
+  for (let index = 0; index < content.items.length; index += 1) {
+    const item = content.items[index];
+    const rowNumber = index + 1;
+    const serialNumbers = (item.serialNumbers || []).filter(
+      (serialNumber) => serialNumber.trim() !== ''
+    );
 
-  return Object.values(PAYMENT_TYPE_NAMES).includes(value)
-    ? value
-    : '';
+    if (serialNumbers.length > Number(item.quantity)) {
+      return `Serial numbers cannot exceed quantity in row ${rowNumber}.`;
+    }
+
+    if (serialNumbers.length !== Number(item.quantity)) {
+      return `Enter ${item.quantity} serial number${Number(item.quantity) === 1 ? '' : 's'} in row ${rowNumber}.`;
+    }
+  }
+  if (content.termsAndConditions?.some((term) => !term.title?.trim() || term.title.length > 200)) {
+    return 'All selected terms must have a valid title.';
+  }
+  return '';
 };
 
+const loadAttachments = async (isDraft, targetId) => {
+  const response = isDraft
+    ? await getProformaDraftAttachments(targetId)
+    : await getProformaInvoiceAttachments(targetId);
+  const attachments = response?.data ?? response;
+  return Array.isArray(attachments) ? attachments : [];
+};
 
 export default function Invoice() {
   // ============================================
@@ -124,6 +208,7 @@ export default function Invoice() {
   // ============================================
 
   const location = useLocation();
+  const navigate = useNavigate();
   const { draftId, id } = useParams();
 
   const isProformaDraft =
@@ -153,7 +238,10 @@ export default function Invoice() {
   const [products, setProducts] = useState([]);
   const [selectedTerms, setSelectedTerms] = useState([]);
   const [paymentTypes, setPaymentTypes] = useState([]);
+  const [units, setUnits] = useState([]);
+  const [areLookupsLoaded, setAreLookupsLoaded] = useState(false);
   const [documents, setDocuments] = useState([]);
+  const [isDocumentBusy, setIsDocumentBusy] = useState(false);
 
   const [summary, setSummary] = useState({
     discountValue: 0,
@@ -184,33 +272,23 @@ export default function Invoice() {
   const [isDraftLoading, setIsDraftLoading] = useState(false);
   const [draftError, setDraftError] = useState('');
   const [isDraftSaving, setIsDraftSaving] = useState(false);
-  const [saveStatus, setSaveStatus] = useState('saved');
+  const [saveStatus, setSaveStatus] = useState('');
   const [isFinalizing, setIsFinalizing] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  const [isStartingEdit, setIsStartingEdit] = useState(false);
+  const [isEditing, setIsEditing] = useState(
+    Boolean(location.state?.startEditing)
+  );
+  const [isEditDraft, setIsEditDraft] = useState(
+    Boolean(location.state?.isEditDraft)
+  );
+  const [sourceInvoiceId, setSourceInvoiceId] = useState(
+    location.state?.invoiceId || null
+  );
   const [finalizedInvoice, setFinalizedInvoice] = useState(null);
-  const [toast, setToast] = useState(null);
-
-  // These refs coordinate manual saving and Autosave.
-  const draftSaveInProgress = useRef(false);
-  const currentVersionRef = useRef(null);
-  const lastSavedContentRef = useRef(null);
-  const latestContentRef = useRef(null);
-  const failedContentRef = useRef(null);
-  const saveDraftRef = useRef(null);
-  const activeDraftRef = useRef(null);
-  const currentSavePromiseRef = useRef(null);
-  const finalizingRef = useRef(false);
-
-  // A stable JSON representation lets us detect actual content changes.
-  const contentJson = useMemo(() => {
-    if (!isProformaDraft) return null;
-    return JSON.stringify(buildProformaDraftContent({
-      formData,
-      items,
-      summary,
-      selectedTerms,
-    }));
-  }, [isProformaDraft, formData, items, summary, selectedTerms]);
-  latestContentRef.current = contentJson;
+  const [toast, setToast] = useState(location.state?.toast || null);
+  const [showEditAttention, setShowEditAttention] = useState(false);
 
   // ============================================
   // GST Calculation Mode
@@ -293,7 +371,7 @@ export default function Invoice() {
         ] = await Promise.all([
           getGstSlabs(),
           getCompanies(),
-          getQuotations(),
+          getProformaQuotationReferences(),
           getPurchaseLookups(),
           getDocumentPrefixes(),
           getAllProducts(),
@@ -331,16 +409,33 @@ export default function Invoice() {
         );
 
         setQuotations(
-          Array.isArray(quotationList) ? quotationList : []
+          Array.isArray(quotationList)
+            ? quotationList.map((quotation) => ({
+                id: quotation.id,
+                proposalReference: quotation.proposalReference,
+              }))
+            : []
         );
 
         setProducts(
           Array.isArray(productList) ? productList : []
         );
 
-        setPaymentTypes(
-          Array.isArray(lookups?.paymentTypes)
-            ? lookups.paymentTypes
+        const availablePaymentTypes = Array.isArray(lookups?.paymentTypes)
+          ? lookups.paymentTypes
+          : [];
+        setPaymentTypes(availablePaymentTypes);
+
+        if (!isProformaDetails && availablePaymentTypes.length > 0) {
+          setFormData((current) => ({
+            ...current,
+            paymentType:
+              current.paymentType || availablePaymentTypes[0].value,
+          }));
+        }
+        setUnits(
+          Array.isArray(lookups?.units)
+            ? lookups.units
             : []
         );
       } catch {
@@ -351,6 +446,9 @@ export default function Invoice() {
         setQuotations([]);
         setProducts([]);
         setPaymentTypes([]);
+        setUnits([]);
+      } finally {
+        if (!cancelled) setAreLookupsLoaded(true);
       }
     };
 
@@ -366,17 +464,9 @@ export default function Invoice() {
   // ============================================
 
   useEffect(() => {
-    if (!isProformaDraft) return;
+    if (!isProformaDraft || !areLookupsLoaded) return;
 
     let cancelled = false;
-    activeDraftRef.current = draftId;
-    finalizingRef.current = false;
-    setIsFinalizing(false);
-    setToast(null);
-    setFinalizedInvoice(null);
-    lastSavedContentRef.current = null;
-    currentVersionRef.current = null;
-    failedContentRef.current = null;
 
     const loadDraft = async () => {
       setIsDraftLoading(true);
@@ -395,129 +485,39 @@ export default function Invoice() {
           throw new Error('Active draft not found.');
         }
 
+        const draftType = String(draft.draftType || '').toLowerCase();
+        setIsEditDraft(
+          Boolean(location.state?.isEditDraft) ||
+          draftType.includes('edit') ||
+          Boolean(draft.invoiceId || draft.proformaInvoiceId || draft.sourceInvoiceId)
+        );
+        setSourceInvoiceId(
+          draft.proformaInvoiceId ?? draft.invoiceId ?? draft.sourceInvoiceId ??
+          location.state?.invoiceId ?? null
+        );
+
         const content = draft.content;
 
         if (!content || typeof content !== 'object') {
           throw new Error('Draft content is missing.');
         }
 
-        if (content) {
-          // ====================================
-          // Restore Invoice Information
-          // ====================================
+        const attachmentList = await loadAttachments(true, draftId);
+        if (cancelled) return;
+        setDocuments(attachmentList);
 
-          setFormData((current) => ({
-            ...current,
-            customerCompanyId:
-              content.customerCompanyId == null
-                ? ''
-                : String(content.customerCompanyId),
+        const restored = restoreInvoiceContent(content, {
+          units,
+          paymentTypes,
+          quotations,
+        });
+        setFormData((current) => ({ ...current, ...restored.formData }));
+        setItems(restored.items);
+        setSelectedTerms(restored.selectedTerms);
+        setSummary(restored.summary);
 
-            billingName: content.billingName ?? '',
-            phoneNo: content.phoneNo ?? '',
-            gstNo: content.gstNo ?? '',
-            stateOfSupply: content.stateOfSupply ?? '',
-
-            invoiceDate: content.invoiceDate
-              ? content.invoiceDate.slice(0, 10)
-              : getToday(),
-
-            validityPeriod:
-              content.validityPeriod ?? 30,
-
-            description: content.description ?? '',
-
-            paymentType:
-              restorePaymentType(content.paymentType),
-
-            proposalReference:
-              content.quotationId != null
-                ? String(content.quotationId)
-                : '',
-          }));
-
-          // ====================================
-          // Restore Terms & Conditions
-          // ====================================
-
-          const restoredTerms =
-            Array.isArray(content.termsAndConditions)
-              ? content.termsAndConditions.map((term) => ({
-                  id:
-                    term.termId ??
-                    term.id ??
-                    crypto.randomUUID(),
-
-                  termId: term.termId ?? null,
-
-                  title: term.title ?? '',
-
-                  bullets: Array.isArray(term.bullets)
-                    ? term.bullets
-                    : [],
-                }))
-              : [];
-
-          setSelectedTerms(restoredTerms);
-
-          // ====================================
-          // Restore Discount Information
-          // ====================================
-
-          setSummary({
-            discountValue:
-              content.totalDiscountValue ?? 0,
-
-            discountType:
-              restoreDiscountType(
-                content.totalDiscountType
-              ),
-          });
-
-          // ====================================
-          // Restore Invoice Items
-          // ====================================
-
-          const restoredItems = Array.isArray(content.items)
-            ? content.items.map(restoreInvoiceItem)
-            : [];
-
-          const effectiveItems = restoredItems.length > 0
-            ? restoredItems
-            : [createInvoiceItem()];
-          setItems(effectiveItems);
-
-          // Compare against the restored form, not the empty initial form.
-          const restoredContentJson = JSON.stringify(
-            buildProformaDraftContent({
-              formData: {
-                customerCompanyId: content.customerCompanyId == null
-                  ? '' : String(content.customerCompanyId),
-                billingName: content.billingName ?? '',
-                phoneNo: content.phoneNo ?? '',
-                gstNo: content.gstNo ?? '',
-                stateOfSupply: content.stateOfSupply ?? '',
-                invoiceDate: content.invoiceDate
-                  ? content.invoiceDate.slice(0, 10) : getToday(),
-                validityPeriod: content.validityPeriod ?? 30,
-                proposalReference: content.quotationId == null
-                  ? '' : String(content.quotationId),
-                description: content.description ?? '',
-                paymentType: restorePaymentType(content.paymentType),
-              },
-              items: effectiveItems,
-              summary: {
-                discountValue: content.totalDiscountValue ?? 0,
-                discountType: restoreDiscountType(content.totalDiscountType),
-              },
-              selectedTerms: restoredTerms,
-            })
-          );
-          lastSavedContentRef.current = restoredContentJson;
-          currentVersionRef.current = draft.version;
-          setDraftVersion(draft.version);
-          setSaveStatus('saved');
-        }
+        setDraftVersion(draft.version);
+        setSaveStatus('');
       } catch (error) {
         if (!cancelled) {
           setDraftError(
@@ -544,14 +544,115 @@ export default function Invoice() {
 
     return () => {
       cancelled = true;
-      if (activeDraftRef.current === draftId) {
-        activeDraftRef.current = null;
-      }
     };
-  }, [draftId, isProformaDraft]);
+  }, [
+    draftId,
+    isProformaDraft,
+    location.state,
+    areLookupsLoaded,
+    units,
+    paymentTypes,
+    quotations,
+  ]);
+
+  const handleDocumentsAdd = async (files) => {
+    if ((!isProformaDraft && !isProformaDetails) || files.length === 0) return;
+
+    const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png'];
+    const invalidFile = files.find((file) => {
+      const extension = file.name.split('.').pop()?.toLowerCase();
+      return !allowedExtensions.includes(extension) || file.size > 10 * 1024 * 1024;
+    });
+
+    if (invalidFile) {
+      setToast({
+        message: 'Only PDF, JPG, JPEG or PNG files up to 10 MiB are allowed.',
+        type: 'error',
+      });
+      return;
+    }
+
+    try {
+      setIsDocumentBusy(true);
+      for (const file of files) {
+        const response = isProformaDraft
+          ? await uploadProformaDraftAttachment(draftId, file)
+          : await uploadProformaInvoiceAttachment(id, file);
+        if (response?.success === false) {
+          throw new Error(response.message || `Failed to upload ${file.name}.`);
+        }
+      }
+
+      setDocuments(await loadAttachments(
+        isProformaDraft,
+        isProformaDraft ? draftId : id
+      ));
+      setToast({ message: 'Supporting document uploaded successfully.', type: 'success' });
+    } catch (error) {
+      setToast({
+        message: error.response?.data?.message || error.message || 'Failed to upload supporting document.',
+        type: 'error',
+      });
+    } finally {
+      setIsDocumentBusy(false);
+    }
+  };
+
+  const handleDocumentDownload = async (attachment) => {
+    const attachmentId = attachment.id ?? attachment.attachmentId;
+    if (!attachmentId) return;
+
+    try {
+      setIsDocumentBusy(true);
+      const file = isProformaDraft
+        ? await downloadProformaDraftAttachment(draftId, attachmentId)
+        : await downloadProformaInvoiceAttachment(id, attachmentId);
+      const fileName = attachment.originalFileName ?? attachment.fileName ?? attachment.name ?? 'attachment';
+      const url = URL.createObjectURL(file);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      setToast({
+        message: error.response?.data?.message || error.message || 'Failed to download attachment.',
+        type: 'error',
+      });
+    } finally {
+      setIsDocumentBusy(false);
+    }
+  };
+
+  const handleDocumentDelete = async (attachment) => {
+    const attachmentId = attachment.id ?? attachment.attachmentId;
+    if (!attachmentId) return;
+
+    try {
+      setIsDocumentBusy(true);
+      const response = isProformaDraft
+        ? await deleteProformaDraftAttachment(draftId, attachmentId)
+        : await deleteProformaInvoiceAttachment(id, attachmentId);
+      if (response?.success === false) {
+        throw new Error(response.message || 'Failed to delete attachment.');
+      }
+
+      setDocuments((current) => current.filter((file) => (
+        (file.id ?? file.attachmentId) !== attachmentId
+      )));
+      setToast({ message: response?.message || 'Attachment deleted successfully.', type: 'success' });
+    } catch (error) {
+      setToast({
+        message: error.response?.data?.message || error.message || 'Failed to delete attachment.',
+        type: 'error',
+      });
+    } finally {
+      setIsDocumentBusy(false);
+    }
+  };
 
   useEffect(() => {
-    if (!isProformaDetails) return;
+    if (!isProformaDetails || !areLookupsLoaded) return;
 
     const loadInvoice = async () => {
       try {
@@ -563,34 +664,23 @@ export default function Invoice() {
           throw new Error(response?.message || 'Unable to load proforma invoice.');
         }
 
+
+        const restored = restoreInvoiceContent(invoice, {
+          savedInvoice: true,
+          units,
+          paymentTypes,
+          quotations,
+        });
         setFormData((current) => ({
           ...current,
-          customerCompanyId: invoice.customerCompanyId == null
-            ? '' : String(invoice.customerCompanyId),
-          billingName: invoice.billingName ?? '',
-          phoneNo: invoice.phoneNo ?? '',
-          gstNo: invoice.gstNo ?? '',
-          stateOfSupply: invoice.stateOfSupply ?? '',
-          prefix: invoice.prefix ?? current.prefix,
-          invoiceNumber: invoice.invoiceNumber ?? invoice.proformaInvoiceNumber ?? '',
-          proposalReference: invoice.quotationId == null
-            ? '' : String(invoice.quotationId),
-          invoiceDate: invoice.invoiceDate?.slice(0, 10) ?? getToday(),
-          validityPeriod: invoice.validityPeriod ?? 30,
-          description: invoice.description ?? '',
-          paymentType: restorePaymentType(invoice.paymentType),
+          ...restored.formData,
+          prefix: restored.formData.prefix ?? current.prefix,
         }));
+        setItems(restored.items);
+        setSelectedTerms(restored.selectedTerms);
+        setSummary(restored.summary);
 
-        setItems(
-          Array.isArray(invoice.items) && invoice.items.length > 0
-            ? invoice.items.map(restoreInvoiceItem)
-            : [createInvoiceItem()]
-        );
-        setSelectedTerms(invoice.termsAndConditions || []);
-        setSummary({
-          discountValue: invoice.totalDiscountValue ?? 0,
-          discountType: restoreDiscountType(invoice.totalDiscountType),
-        });
+        setDocuments(await loadAttachments(false, id));
       } catch (error) {
         setDraftError(error.response?.data?.message || error.message || 'Unable to load proforma invoice.');
         setToast({
@@ -603,165 +693,288 @@ export default function Invoice() {
     };
 
     loadInvoice();
-  }, [id, isProformaDetails]);
+  }, [
+    id,
+    isProformaDetails,
+    areLookupsLoaded,
+    units,
+    paymentTypes,
+    quotations,
+  ]);
 
   // ============================================
-  // Shared Save Logic — Manual Save and Autosave
+  // Save Draft — shared by Autosave and Finalize
   // ============================================
 
-  const saveDraft = async ({ manual = false, forCommit = false } = {}) => {
-    if (!isProformaDraft || isDraftLoading || draftError || finalizedInvoice) return false;
-    if (finalizingRef.current && !forCommit) return false;
-    if (draftSaveInProgress.current || currentVersionRef.current === null) return false;
-
-    const snapshot = latestContentRef.current;
-    if (!snapshot) return false;
-    if (snapshot === lastSavedContentRef.current) return true;
-    if (!manual && !forCommit && snapshot === failedContentRef.current) return false;
-
-    const savingDraftId = draftId;
-    draftSaveInProgress.current = true;
-    setIsDraftSaving(true);
-    setSaveStatus('saving');
-
-    const savingPromise = updateProformaInvoiceDraft(
-      savingDraftId,
-      currentVersionRef.current,
-      JSON.parse(snapshot)
-    );
-    currentSavePromiseRef.current = savingPromise;
+  const saveDraft = async (showError = false) => {
+    if (
+      !isProformaDraft ||
+      isDraftLoading ||
+      isDraftSaving ||
+      draftError ||
+      finalizedInvoice ||
+      draftVersion === null
+    ) {
+      return false;
+    }
 
     try {
-      const response = await savingPromise;
-      if (activeDraftRef.current !== savingDraftId) return false;
+      setIsDraftSaving(true);
+      setSaveStatus('saving');
 
-      /*
-        This save uses the version captured when the request began.
-        Further edits remain detectable through latestContentRef.
-      */
-      const updatedVersion = response.data?.version;
-      if (!Number.isInteger(updatedVersion)) {
-        throw new Error('Updated Draft version was not returned.');
+      const content = buildProformaDraftContent({
+        formData,
+        items,
+        summary,
+        selectedTerms,
+        units,
+        paymentTypes,
+        quotations,
+      });
+      const response = await updateProformaInvoiceDraft( // draft saving 
+        draftId,
+        draftVersion,
+        content
+      );
+
+      if (!response?.success || !response.data) {
+        throw new Error(response?.message || 'Failed to save draft.');
       }
 
-      currentVersionRef.current = updatedVersion;
-      lastSavedContentRef.current = snapshot;
-      failedContentRef.current = null;
+      const updatedVersion = response.data.version;
+      if (!Number.isInteger(updatedVersion)) {
+        throw new Error('Updated draft version was not returned.');
+      }
+
       setDraftVersion(updatedVersion);
-      setSaveStatus(
-        latestContentRef.current === snapshot ? 'saved' : 'unsaved'
-      );
+      setSaveStatus('saved');
       return true;
     } catch (error) {
-      if (activeDraftRef.current !== savingDraftId) return false;
       console.error('Draft save failed:', error);
-      failedContentRef.current = snapshot;
       setSaveStatus('unsaved');
-      setToast({
-        message:
-          error.response?.data?.message || error.message || 'Failed to save Draft.',
-        type: 'error',
-      });
-      return false;
-    } finally {
-      if (currentSavePromiseRef.current === savingPromise) {
-        currentSavePromiseRef.current = null;
-      }
-      draftSaveInProgress.current = false;
-      if (activeDraftRef.current === savingDraftId) {
-        setIsDraftSaving(false);
-      }
-    }
-  };
 
-  // Timer invokes the current Save function, without retriggering on every render.
-  saveDraftRef.current = saveDraft;
-
-  useEffect(() => {
-    if (finalizingRef.current || finalizedInvoice) return;
-    if (!isProformaDraft || isDraftLoading || draftVersion === null || draftError) return;
-    if (contentJson === lastSavedContentRef.current) return;
-    if (contentJson === failedContentRef.current) return;
-
-    const timeoutId = setTimeout(() => {
-      saveDraftRef.current?.();
-    }, 2000);
-
-    return () => clearTimeout(timeoutId);
-  }, [isProformaDraft, isDraftLoading, draftVersion, draftError, contentJson, finalizedInvoice]);
-
-  const handleFinalizeInvoice = async () => {
-    if (!isProformaDraft || finalizingRef.current || finalizedInvoice ||
-        isDraftLoading || draftError || currentVersionRef.current === null) return;
-
-    // Validate key required fields before making a permanent invoice.
-    const content = JSON.parse(latestContentRef.current || '{}');
-    if (!Number.isInteger(content.customerCompanyId) || content.customerCompanyId <= 0) {
-      setToast({ message: 'Select a customer before finalizing.', type: 'error' });
-      return;
-    }
-    if (!content.invoiceDate || Number(content.validityPeriod) < 1 || Number(content.validityPeriod) > 365) {
-      setToast({ message: 'Enter a valid invoice date and validity period (1–365 days).', type: 'error' });
-      return;
-    }
-    if (!Array.isArray(content.items) || content.items.length === 0 ||
-        content.items.some((item) => !item.itemName?.trim() || item.itemName.length > 200 ||
-          !(item.quantity >= 0.001) || !(item.pricePerUnit >= 0) ||
-          !(item.gstPercentage >= 0 && item.gstPercentage <= 100) ||
-          !(item.cessPercentage >= 0 && item.cessPercentage <= 100))) {
-      setToast({ message: 'Add at least one valid item with name, quantity, price, GST and Cess.', type: 'error' });
-      return;
-    }
-    if (content.termsAndConditions?.some((term) => !term.title?.trim() || term.title.length > 200)) {
-      setToast({ message: 'All selected terms must have a valid title.', type: 'error' });
-      return;
-    }
-    if (documents.length > 0) {
-      setToast({ message: 'Selected supporting files are not uploaded yet. Remove them or upload them before finalizing.', type: 'error' });
-      return;
-    }
-
-    finalizingRef.current = true;
-    setIsFinalizing(true);
-    setToast(null);
-    const committingDraftId = draftId;
-    try {
-      // Wait for a currently running Autosave before taking its next version.
-      if (currentSavePromiseRef.current) {
-        try { await currentSavePromiseRef.current; } catch { /* handled by saveDraft */ }
-        // Let saveDraft finish updating its refs after the response.
-        await Promise.resolve();
-      }
-      if (activeDraftRef.current !== committingDraftId) return;
-
-      // Save the latest form snapshot, bypassing the 2-second debounce.
-      if (latestContentRef.current !== lastSavedContentRef.current) {
-        const saved = await saveDraft({ manual: true, forCommit: true });
-        if (!saved) throw new Error('The latest changes could not be saved. Finalization was cancelled.');
-      }
-      if (activeDraftRef.current !== committingDraftId ||
-          latestContentRef.current !== lastSavedContentRef.current) {
-        throw new Error('Unsaved changes remain. Finalization was cancelled.');
-      }
-
-      const response = await commitProformaInvoiceDraft(committingDraftId);
-      if (activeDraftRef.current !== committingDraftId) return;
-      if (!response?.data) throw new Error('Finalized invoice details were not returned.');
-      setFinalizedInvoice(response.data);
-      setToast({
-        message: `Invoice finalized successfully. Number: ${response.data.invoiceNumber ?? response.data.proformaInvoiceNumber ?? 'Generated by backend'}.`,
-        type: 'success',
-      });
-    } catch (error) {
-      if (activeDraftRef.current === committingDraftId) {
+      if (showError) {
         setToast({
-          message: error.response?.data?.message || error.message || 'Failed to finalize invoice.',
+          message:
+            error.response?.data?.message || error.message || 'Failed to save draft.',
           type: 'error',
         });
       }
+
+      return false;
     } finally {
-      finalizingRef.current = false;
-      if (activeDraftRef.current === committingDraftId) setIsFinalizing(false);
+      setIsDraftSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    if (
+      saveStatus !== 'unsaved' ||
+      !isProformaDraft ||
+      !isEditing ||
+      isDraftLoading ||
+      isDraftSaving ||
+      isFinalizing ||
+      isCancelling ||
+      showDiscardConfirm ||
+      finalizedInvoice ||
+      draftVersion === null ||
+      draftError
+    ) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      saveDraft();
+    }, 2000);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    formData,
+    items,
+    summary,
+    selectedTerms,
+    saveStatus,
+    isProformaDraft,
+    isEditing,
+    isDraftLoading,
+    isDraftSaving,
+    isFinalizing,
+    isCancelling,
+    showDiscardConfirm,
+    finalizedInvoice,
+    draftVersion,
+    draftError,
+  ]);
+
+  const handleCancel = async () => {
+    if (isProformaDraft) {
+      const isUntouchedNewDraft =
+        Boolean(location.state?.startEditing) &&
+        !isEditDraft &&
+        saveStatus === '';
+
+      if (isUntouchedNewDraft) {
+        try {
+          setIsCancelling(true);
+          const response = await discardProformaInvoiceDraft(draftId);
+
+          if (response?.success === false) {
+            throw new Error(response.message || 'Failed to discard draft.');
+          }
+
+          navigate('/proforma-invoices');
+        } catch (error) {
+          setToast({
+            message: error.response?.data?.message || error.message || 'Failed to discard draft.',
+            type: 'error',
+          });
+        } finally {
+          setIsCancelling(false);
+        }
+
+        return;
+      }
+
+      setShowDiscardConfirm(true);
+      return;
+    }
+
+    navigate(isSalesInvoice ? '/sales-invoices' : '/proforma-invoices');
+  };
+
+  const handleDiscardDraft = async () => {
+    if (!isProformaDraft || isDraftSaving || isCancelling) return;
+
+    try {
+      setIsCancelling(true);
+
+      const response = await discardProformaInvoiceDraft(draftId);
+      if (response?.success === false) {
+        throw new Error(response.message || 'Failed to discard draft.');
+      }
+
+      setShowDiscardConfirm(false);
+      navigate('/proforma-invoices');
+    } catch (error) {
+      setToast({
+        message: error.response?.data?.message || error.message || 'Failed to discard draft.',
+        type: 'error',
+      });
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
+  const handleStartEditing = async () => {
+    if (!isProformaDetails || isStartingEdit) return;
+
+    try {
+      setIsStartingEdit(true);
+      setToast(null);
+      const response = await createProformaInvoiceEditDraft(id);
+
+      if (!response?.success || !response.data) {
+        throw new Error(response?.message || 'Unable to start editing this invoice.');
+      }
+
+      const editDraftId = response.data.draftId ?? response.data.id;
+      if (!editDraftId) {
+        throw new Error('Edit Draft ID was not returned by the backend.');
+      }
+
+      navigate(`/proforma-invoices/drafts/${editDraftId}`, {
+        state: { isEditDraft: true, startEditing: true, invoiceId: id },
+      });
+    } catch (error) {
+      setToast({
+        message: error.response?.data?.message || error.message || 'Unable to start editing this invoice.',
+        type: 'error',
+      });
+    } finally {
+      setIsStartingEdit(false);
+    }
+  };
+
+  const handleReadOnlyInteraction = (event) => {
+    const canPromptEdit =
+      isProformaDetails ||
+      (isProformaDraft && !isEditing && !finalizedInvoice);
+
+    if (!canPromptEdit || isStartingEdit) return;
+    if (event.target.closest('[data-edit-invoice-button]')) return;
+
+    setShowEditAttention(true);
+    setToast({
+      message: 'Click Edit to make changes.',
+      type: 'info',
+    });
+  };
+
+  const handleFinalizeInvoice = async () => {
+    if (!isProformaDraft || isFinalizing || isDraftSaving || finalizedInvoice ||
+        isDraftLoading || draftError || draftVersion === null) return;
+
+    const content = buildProformaDraftContent({
+      formData,
+      items,
+      summary,
+      selectedTerms,
+      units,
+      paymentTypes,
+      quotations,
+    });
+    const validationError = validateInvoiceContent(content);
+    if (validationError) {
+      setToast({ message: validationError, type: 'error' });
+      return;
+    }
+
+    setIsFinalizing(true);
+    setToast(null);
+
+    try {
+      const saved = await saveDraft(true);
+      if (!saved) return;
+
+      const response = isEditDraft
+        ? await applyProformaInvoiceDraft(draftId)
+        : await commitProformaInvoiceDraft(draftId);
+      if (!response?.success) {
+        throw new Error(response?.message || (isEditDraft
+          ? 'Failed to apply invoice changes.'
+          : 'Failed to finalize invoice.'));
+      }
+
+      const savedInvoiceId = response.data?.id ?? response.data?.invoiceId ??
+        response.data?.proformaInvoiceId ?? sourceInvoiceId;
+      if (!savedInvoiceId) {
+        throw new Error('Saved Proforma Invoice ID was not returned by the backend.');
+      }
+
+      const successToast = isEditDraft
+        ? { message: response.message || 'Proforma invoice changes applied successfully.', type: 'success' }
+        : {
+            message: `Invoice finalized successfully. Number: ${response.data?.invoiceNumber ?? response.data?.proformaInvoiceNumber ?? 'Generated by backend'}.`,
+            type: 'success',
+          };
+
+      setFinalizedInvoice(response.data || { completed: true });
+      setIsEditing(false);
+      navigate(`/proforma-invoices/${savedInvoiceId}`, {
+        replace: true,
+        state: { toast: successToast },
+      });
+    } catch (error) {
+      setToast({
+        message: error.response?.data?.message || error.message || 'Failed to finalize invoice.',
+        type: 'error',
+      });
+    } finally {
+      setIsFinalizing(false);
     }
   };
 
@@ -772,7 +985,10 @@ export default function Invoice() {
 
 
   return (
-    <div className="relative flex min-w-0 flex-col gap-5 font-sans text-stone-800">
+    <div
+      className="relative flex min-w-0 flex-col gap-5 font-sans text-stone-800"
+      onPointerDownCapture={handleReadOnlyInteraction}
+    >
       <Toast toast={toast} onClose={() => setToast(null)} />
 
       {/* Page Header */}
@@ -790,8 +1006,36 @@ export default function Invoice() {
           </p>
         </div>
 
+        <div className="xl:hidden">
+          {isProformaDetails && (
+            <Button
+              icon={Pencil}
+              onClick={handleStartEditing}
+              disabled={isDraftLoading || Boolean(draftError) || isStartingEdit}
+              data-edit-invoice-button
+              className={showEditAttention ? 'edit-invoice-attention' : ''}
+              onAnimationEnd={() => setShowEditAttention(false)}
+            >
+              {isStartingEdit ? 'Opening...' : 'Edit Invoice'}
+            </Button>
+          )}
+
+          {isProformaDraft && !isEditing && !finalizedInvoice && (
+            <Button
+              icon={Pencil}
+              onClick={() => setIsEditing(true)}
+              disabled={isDraftLoading || Boolean(draftError) || draftVersion === null}
+              data-edit-invoice-button
+              className={showEditAttention ? 'edit-draft-attention' : ''}
+              onAnimationEnd={() => setShowEditAttention(false)}
+            >
+              Edit Draft
+            </Button>
+          )}
+        </div>
+
         <div className="hidden items-center gap-3 xl:flex">
-          {isProformaDraft && draftVersion !== null && (
+          {isProformaDraft && isEditing && draftVersion !== null && saveStatus && (
             <div className="flex items-center gap-2 text-xs text-stone-500">
               <span
                 className={`h-2 w-2 rounded-full ${
@@ -808,21 +1052,56 @@ export default function Invoice() {
             </div>
           )}
 
-          <Button variant="outline" icon={X}>
-            Cancel
-          </Button>
+          {(isProformaDraft || isProformaDetails) && (
+            <Button
+              variant="outline"
+              icon={X}
+              onClick={handleCancel}
+              disabled={isCancelling || isFinalizing || isDraftSaving}
+            >
+              {isCancelling ? 'Cancelling...' : 'Cancel'}
+            </Button>
+          )}
+
+          {isProformaDetails && (
+            <Button
+              icon={Pencil}
+              onClick={handleStartEditing}
+              disabled={isDraftLoading || Boolean(draftError) || isStartingEdit}
+              data-edit-invoice-button
+              className={showEditAttention ? 'edit-invoice-attention' : ''}
+              onAnimationEnd={() => setShowEditAttention(false)}
+            >
+              {isStartingEdit ? 'Opening...' : 'Edit Invoice'}
+            </Button>
+          )}
+
+          {isProformaDraft && !isEditing && !finalizedInvoice && (
+            <Button
+              icon={Pencil}
+              onClick={() => setIsEditing(true)}
+              disabled={isDraftLoading || Boolean(draftError) || draftVersion === null}
+              data-edit-invoice-button
+              className={showEditAttention ? 'edit-draft-attention' : ''}
+              onAnimationEnd={() => setShowEditAttention(false)}
+            >
+              Edit Draft
+            </Button>
+          )}
 
           {!isProformaDraft && !isProformaDetails && (
             <Button icon={Save}>Save</Button>
           )}
-          {isProformaDraft && (
+          {isProformaDraft && isEditing && (
             <Button
               icon={Save}
               onClick={handleFinalizeInvoice}
               disabled={isDraftLoading || Boolean(draftError) || draftVersion === null ||
-                isFinalizing || Boolean(finalizedInvoice)}
+                isDraftSaving || isFinalizing || Boolean(finalizedInvoice)}
             >
-              {isFinalizing ? 'Finalizing...' : 'Finalize Invoice'}
+              {isFinalizing
+                ? (isEditDraft ? 'Applying...' : 'Finalizing...')
+                : (isEditDraft ? 'Apply Changes' : 'Save Invoice')}
             </Button>
           )}
         </div>
@@ -839,7 +1118,7 @@ export default function Invoice() {
       )}
 
       {/* Invoice Form */}
-      <fieldset disabled={isProformaDetails || (isProformaDraft && (isDraftLoading || isFinalizing || Boolean(finalizedInvoice) || Boolean(draftError)))} className="m-0 min-w-0 border-0 p-0">
+      <fieldset disabled={isProformaDetails || (isProformaDraft && (!isEditing || isDraftLoading || isFinalizing || Boolean(finalizedInvoice) || Boolean(draftError)))} className="m-0 min-w-0 border-0 p-0">
         <div className="grid min-w-0 grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
 
           <div className="contents xl:order-1 xl:col-start-1 xl:row-start-1 xl:flex xl:min-w-0 xl:flex-col xl:gap-4">
@@ -862,6 +1141,7 @@ export default function Invoice() {
                   if (isProformaDraft) setSaveStatus('unsaved');
                 }}
                 gstSlabs={gstSlabs}
+                units={units}
                 isSameState={isSameState}
               />
             </div>
@@ -878,7 +1158,11 @@ export default function Invoice() {
                 paymentTypes={paymentTypes}
                 documents={documents}
                 onFieldChange={handleChange}
-                onDocumentsChange={setDocuments}
+                onDocumentsAdd={handleDocumentsAdd}
+                onDocumentDownload={handleDocumentDownload}
+                onDocumentDelete={handleDocumentDelete}
+                isDocumentBusy={isDocumentBusy}
+                showDocuments={!isProformaDetails}
               />
             </div>
           </div>
@@ -895,30 +1179,88 @@ export default function Invoice() {
         </div>
       </fieldset>
 
+      {isProformaDetails && (
+        <section className="rounded-xl border border-stone-200 bg-white p-4">
+          <InvoiceAttachments
+            documents={documents}
+            onAdd={handleDocumentsAdd}
+            onDownload={handleDocumentDownload}
+            onDelete={handleDocumentDelete}
+            isBusy={isDocumentBusy}
+          />
+        </section>
+      )}
+
       {/* Mobile Action Buttons */}
       <div className="flex gap-2 xl:hidden">
-        <Button
-          variant="outline"
-          className="flex-1"
-        >
-          Cancel
-        </Button>
+        {(isProformaDraft || isProformaDetails) && (
+          <Button
+            variant="outline"
+            className="flex-1"
+            onClick={handleCancel}
+            disabled={isCancelling || isFinalizing || isDraftSaving}
+          >
+            {isCancelling ? 'Cancelling...' : 'Cancel'}
+          </Button>
+        )}
+
+        {isProformaDetails && (
+          <Button
+            icon={Pencil}
+            onClick={handleStartEditing}
+            disabled={isDraftLoading || Boolean(draftError) || isStartingEdit}
+            data-edit-invoice-button
+            className={`flex-1 ${showEditAttention ? 'edit-invoice-attention' : ''}`}
+            onAnimationEnd={() => setShowEditAttention(false)}
+          >
+            {isStartingEdit ? 'Opening...' : 'Edit Invoice'}
+          </Button>
+        )}
+
+        {isProformaDraft && !isEditing && !finalizedInvoice && (
+          <Button
+            icon={Pencil}
+            onClick={() => setIsEditing(true)}
+            disabled={isDraftLoading || Boolean(draftError) || draftVersion === null}
+            data-edit-invoice-button
+            className={`flex-1 ${showEditAttention ? 'edit-draft-attention' : ''}`}
+            onAnimationEnd={() => setShowEditAttention(false)}
+          >
+            Edit Draft
+          </Button>
+        )}
 
         {!isProformaDraft && !isProformaDetails && (
           <Button icon={Save} className="flex-1">Save</Button>
         )}
-        {isProformaDraft && (
+        {isProformaDraft && isEditing && (
           <Button
             icon={Save}
             className="flex-1"
             onClick={handleFinalizeInvoice}
             disabled={isDraftLoading || Boolean(draftError) || draftVersion === null ||
-              isFinalizing || Boolean(finalizedInvoice)}
+              isDraftSaving || isFinalizing || Boolean(finalizedInvoice)}
           >
-            {isFinalizing ? 'Finalizing...' : 'Finalize Invoice'}
+            {isFinalizing
+              ? (isEditDraft ? 'Applying...' : 'Finalizing...')
+              : (isEditDraft ? 'Apply Changes' : 'Save Invoice')}
           </Button>
         )}
       </div>
+
+      {showDiscardConfirm && (
+        <DeleteConfirmationModal
+          tone="brand"
+          title="Cancel Proforma Invoice"
+          message="All changes saved in this draft and its temporary attachments will be permanently removed. Do you want to continue?"
+          cancelLabel="Keep Editing"
+          confirmLabel="Discard Draft"
+          submittingLabel="Discarding..."
+          isDeleting={isCancelling}
+          onCancel={() => setShowDiscardConfirm(false)}
+          onConfirm={handleDiscardDraft}
+        />
+      )}
     </div>
   );
 }

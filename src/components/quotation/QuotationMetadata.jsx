@@ -69,66 +69,69 @@ export default function QuotationMetadata({ data, onChange, companies = [], read
           </select>
         </label>
 
-        <div className="grid grid-cols-1 items-center gap-y-2 text-xs text-stone-600 sm:grid-cols-[110px_150px_120px_160px] sm:gap-x-3">
-          <span className="whitespace-nowrap">Prefix</span>
+        <div className="grid min-w-0 grid-cols-1 gap-3 text-xs text-stone-600 sm:grid-cols-2">
+          <label className="min-w-0">
+            <span className="mb-1.5 block">Prefix</span>
+            <div className="relative">
+              <input
+                type="text"
+                value={prefix}
+                maxLength={12}
+                onFocus={() => setIsPrefixOpen(true)}
+                onBlur={() => window.setTimeout(() => setIsPrefixOpen(false), 150)}
+                onChange={(event) => {
+                  setPrefix(event.target.value.toUpperCase());
+                  setIsPrefixOpen(true);
+                }}
+                placeholder="Enter or select prefix"
+                className={`${inputStyle} pr-9 uppercase`}
+              />
 
-          <div className="relative">
+              <Button
+                variant="unstyled"
+                onClick={() => setIsPrefixOpen(!isPrefixOpen)}
+                className="absolute right-0 top-0 flex h-full w-9 items-center justify-center text-stone-400"
+              >
+                <ChevronDown
+                  size={14}
+                  className={isPrefixOpen ? 'rotate-180' : ''}
+                />
+              </Button>
+
+              {isPrefixOpen && filteredPrefixes.length > 0 && (
+                <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-stone-200 bg-white py-1 shadow-lg">
+                  {filteredPrefixes.map((option) => (
+                    <Button
+                      key={option}
+                      variant="unstyled"
+                      onMouseDown={() => {
+                        setPrefix(option);
+                        setIsPrefixOpen(false);
+                      }}
+                      className="block w-full px-3 py-2 text-left text-xs font-semibold text-stone-800 hover:bg-[#fbf5e7]"
+                    >
+                      {option}
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </label>
+
+          <label className="min-w-0">
+            <span className="mb-1.5 block">Proposal Reference</span>
             <input
               type="text"
-              value={prefix}
-              maxLength={12}
-              onFocus={() => setIsPrefixOpen(true)}
-              onBlur={() => window.setTimeout(() => setIsPrefixOpen(false), 150)}
+              readOnly={readOnlyReference}
+              className={`${inputStyle} read-only:bg-stone-50 read-only:text-stone-500`}
+              value={data.proposalReference}
               onChange={(event) => {
-                setPrefix(event.target.value.toUpperCase());
-                setIsPrefixOpen(true);
+                update('proposalReference', event.target.value);
               }}
-              placeholder="Enter or select prefix"
-              className={`${inputStyle} pr-9 uppercase`}
             />
+          </label>
 
-            <Button
-              variant="unstyled"
-              onClick={() => setIsPrefixOpen(!isPrefixOpen)}
-              className="absolute right-0 top-0 flex h-full w-9 items-center justify-center text-stone-400"
-            >
-              <ChevronDown
-                size={14}
-                className={isPrefixOpen ? 'rotate-180' : ''}
-              />
-            </Button>
-
-            {isPrefixOpen && filteredPrefixes.length > 0 && (
-              <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-stone-200 bg-white py-1 shadow-lg">
-                {filteredPrefixes.map((option) => (
-                  <Button
-                    key={option}
-                    variant="unstyled"
-                    onMouseDown={() => {
-                      setPrefix(option);
-                      setIsPrefixOpen(false);
-                    }}
-                    className="block w-full px-3 py-2 text-left text-xs font-semibold text-stone-800 hover:bg-[#fbf5e7]"
-                  >
-                    {option}
-                  </Button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <span className="whitespace-nowrap">Proposal Reference</span>
-          <input
-            type="text"
-            readOnly={readOnlyReference}
-            className={`${inputStyle} read-only:bg-stone-50 read-only:text-stone-500`}
-            value={data.proposalReference}
-            onChange={(event) => {
-              update('proposalReference', event.target.value);
-            }}
-          />
-
-          <p className="m-0 flex items-center gap-1.5 text-[10px] text-stone-500 sm:col-start-2 sm:col-end-[-1]">
+          <p className="m-0 flex items-center gap-1.5 text-[10px] text-stone-500 sm:col-span-2">
             <Info size={11} className="shrink-0" />
             Reference is auto-generated from the prefix.
           </p>

@@ -100,7 +100,9 @@ export default function ProformaInvoiceList() {
         throw new Error('Draft ID was not returned by the backend.');
       }
 
-      navigate(`/proforma-invoices/drafts/${draftId}`);
+      navigate(`/proforma-invoices/drafts/${draftId}`, {
+        state: { startEditing: true },
+      });
     } catch (error) {
       setToast({
         message:
@@ -169,9 +171,9 @@ export default function ProformaInvoiceList() {
   return (
     <div className="flex flex-col gap-6 text-stone-800">
       <Toast toast={toast} onClose={() => setToast(null)} />
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="m-0 whitespace-nowrap text-xl font-bold text-stone-900 sm:text-2xl">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="m-0 text-xl font-bold text-stone-900 sm:text-2xl">
             {showDrafts ? 'Proforma Invoice Draft List' : 'Proforma Invoice List'}
           </h1>
           <p className="mb-0 mt-1 text-sm text-stone-500">
@@ -179,7 +181,7 @@ export default function ProformaInvoiceList() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
           <div className="relative">
             <Button
               variant="outline"

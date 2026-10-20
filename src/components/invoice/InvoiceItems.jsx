@@ -1,5 +1,5 @@
 import { Hash, Plus, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import Button from '../common/Button.jsx';
 import Dropdown from '../common/Dropdown.jsx';
@@ -14,8 +14,9 @@ function createInvoiceItem() {
     serialNumbers: [],
     description: '',
     partNumber: '',
+    hsnSac: '',
     quantity: 1,
-    unit: 'NONE',
+    unit: '',
     price: 0,
     tax: 0,
     cess: 0,
@@ -25,20 +26,6 @@ function createInvoiceItem() {
 
 const inputClass =
   'h-[42px] w-full rounded-md border border-stone-200 bg-white px-2 text-xs text-stone-800 outline-none focus:border-[#c5a059]';
-
-
-
-const unitOptions = [
-  { value: 'NONE', label: 'NONE' },
-  { value: 'PCS', label: 'PCS' },
-  { value: 'BOX', label: 'BOX' },
-  { value: 'KG', label: 'KG' },
-  { value: 'MTR', label: 'MTR' },
-  { value: 'LTR', label: 'LTR' },
-  { value: 'SET', label: 'SET' },
-  { value: 'DOZEN', label: 'DOZEN' },
-  { value: 'BUNDLE', label: 'BUNDLE' },
-];
 
 
 
@@ -56,9 +43,28 @@ export default function InvoiceItems({
   onItemsChange,
   products = [],
   gstSlabs,
+  units = [],
   isSameState,
 }) {
   const [serialItemId, setSerialItemId] = useState(null);
+  const tableScrollRef = useRef(null);
+
+  useEffect(() => {
+    const container = tableScrollRef.current;
+    if (!container) return undefined;
+
+    const handleWheel = (event) => {
+      if (container.scrollWidth <= container.clientWidth) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      container.scrollLeft += event.deltaX || event.deltaY;
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+
+    return () => container.removeEventListener('wheel', handleWheel);
+  }, []);
 
 
   // Update one field of one item
@@ -153,6 +159,7 @@ export default function InvoiceItems({
         ? {
             ...item,
             itemName: productName,
+            hsnSac: product?.hsnSac ?? product?.hsnsac ?? '',
             price: product?.sellingPricePerUnit ?? product?.currentSellingPrice ?? item.price,
           }
         : item
@@ -161,7 +168,7 @@ export default function InvoiceItems({
 
 
   return (
-    <section className="rounded-xl border border-stone-200 bg-white p-4">
+    <section className="items-field-hover rounded-xl border border-stone-200 bg-white p-4">
 
       {/* Header */}
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -205,7 +212,10 @@ export default function InvoiceItems({
 
 
       {/* Items table */}
-      <div className="overflow-x-auto pb-2">
+      <div
+        ref={tableScrollRef}
+        className="invoice-table-scroll overflow-x-auto pb-2"
+      >
 
         <table className="w-full min-w-[1450px] border-collapse text-left text-xs">
 
@@ -216,6 +226,7 @@ export default function InvoiceItems({
                 'Item',
                 'Description',
                 'Part Number',
+                'HSN/SAC',
                 'Qty',
                 'Unit',
                 'Price/Unit',
@@ -319,6 +330,23 @@ export default function InvoiceItems({
                   </td>
 
 
+                  {/* HSN/SAC */}
+                  <td className="px-2 py-2">
+                    <input
+                      value={item.hsnSac}
+                      onChange={(e) =>
+                        updateItem(
+                          item.id,
+                          'hsnSac',
+                          e.target.value
+                        )
+                      }
+                      placeholder="HSN/SAC"
+                      className={`${inputClass} w-24`}
+                    />
+                  </td>
+
+
                   {/* Quantity */}
                   <td className="px-2 py-2">
                     <input
@@ -342,7 +370,7 @@ export default function InvoiceItems({
                     <Dropdown
                       name="unit"
                       value={item.unit}
-                      options={unitOptions}
+                      options={units}
                       onChange={(e) =>
                         updateItem(
                           item.id,
@@ -350,6 +378,7 @@ export default function InvoiceItems({
                           e.target.value
                         )
                       }
+                      emptyMessage="No units available"
                     />
                   </td>
 

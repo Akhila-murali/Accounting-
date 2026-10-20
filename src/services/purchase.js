@@ -152,12 +152,7 @@ export const uploadPurchaseAttachment = async (purchaseBillId, file) => {
 
   const response = await api.post(
     ENDPOINTS.PURCHASE_BILLS.UPLOAD_ATTACHMENT(purchaseBillId),
-    formData,
-    {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    }
+    formData
   );
 
   return response.data;

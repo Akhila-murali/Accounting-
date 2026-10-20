@@ -1,4 +1,4 @@
-import { FileText } from 'lucide-react';
+import { FileText, Info } from 'lucide-react';
 
 import Dropdown from '../common/Dropdown.jsx';
 
@@ -18,10 +18,10 @@ export default function InvoiceInformation({
   }));
   
 
-const quotationOptions = quotations.map((quotation) => ({
-  value: String(quotation.id),
-  label: quotation.proposalReference,
-}));
+  const quotationOptions = quotations.map((quotation) => ({
+    value: String(quotation.id),
+    label: quotation.proposalReference,
+  }));
 
   return (
     <section className="rounded-xl border border-stone-200 bg-white p-4">
@@ -40,8 +40,8 @@ const quotationOptions = quotations.map((quotation) => ({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:gap-0 lg:divide-x lg:divide-stone-100">
-        <div className="lg:pr-6">
+      <div className="grid min-w-0 grid-cols-1 gap-6 2xl:grid-cols-2 2xl:gap-0 2xl:divide-x 2xl:divide-stone-100">
+        <div className="min-w-0 2xl:pr-6">
           <SectionTitle>Customer Details</SectionTitle>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -77,33 +77,68 @@ const quotationOptions = quotations.map((quotation) => ({
           </div>
         </div>
 
-        <div className="lg:pl-6">
+        <div className="min-w-0 2xl:pl-6">
           <SectionTitle>Document Details</SectionTitle>
 
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-[90px_minmax(150px,1fr)_minmax(150px,1fr)]">
-              <Field label="Prefix" name="prefix" value={formData.prefix} onChange={onChange} maxLength={12} />
-              <Field label={isSalesInvoice ? 'Invoice Number' : 'PI No.'} name="invoiceNumber" value={formData.invoiceNumber} readOnly />
-              {isSalesInvoice ? (
-                <Field label="PI Number" name="piNumber" value={formData.piNumber} onChange={onChange} placeholder="Enter PI number" />
-              ) : (
-                <ProposalField formData={formData} options={quotationOptions} onChange={onChange} />
-              )}
-            </div>
+          {isSalesInvoice ? (
+            <div className="space-y-4">
+              <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-[90px_minmax(0,1fr)] xl:grid-cols-[90px_minmax(150px,1fr)_minmax(150px,1fr)]">
+                <Field label="Prefix" name="prefix" value={formData.prefix} onChange={onChange} maxLength={12} />
+                <Field label="Invoice Number" name="invoiceNumber" value={formData.invoiceNumber} readOnly />
+                <Field wrapperClassName="sm:col-span-2 xl:col-span-1" label="PI Number" name="piNumber" value={formData.piNumber} onChange={onChange} placeholder="Enter PI number" />
+              </div>
 
-            {isSalesInvoice ? (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(220px,1.4fr)_minmax(160px,1fr)_minmax(120px,0.7fr)]">
                 <ProposalField formData={formData} options={quotationOptions} onChange={onChange} />
                 <Field label="Invoice Date" name="invoiceDate" type="date" value={formData.invoiceDate} onChange={onChange} required />
                 <Field label="Validity (days)" name="validityPeriod" type="number" value={formData.validityPeriod} onChange={onChange} required />
               </div>
-            ) : (
-              <div className="flex gap-4">
-                <Field wrapperClassName="w-full max-w-52" label="Invoice Date" name="invoiceDate" type="date" value={formData.invoiceDate} onChange={onChange} required />
-                <Field wrapperClassName="w-full max-w-28" label="Validity (days)" name="validityPeriod" type="number" value={formData.validityPeriod} onChange={onChange} required />
+            </div>
+          ) : (
+            <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-12">
+              <Field
+                wrapperClassName="sm:col-span-4"
+                label="Prefix"
+                name="prefix"
+                value={formData.prefix}
+                onChange={onChange}
+                maxLength={12}
+              />
+              <div className="min-w-0 sm:col-span-4">
+                <Field
+                  label="PI No."
+                  name="invoiceNumber"
+                  value={formData.invoiceNumber}
+                  readOnly
+                />
+                <p className="mb-0 mt-1.5 flex items-center gap-1.5 whitespace-nowrap text-[10px] text-stone-500">
+                  <Info size={11} className="shrink-0" />
+                  PI number is auto-generated from the prefix.
+                </p>
               </div>
-            )}
-          </div>
+              <div className="min-w-0 sm:col-span-4">
+                <ProposalField formData={formData} options={quotationOptions} onChange={onChange} />
+              </div>
+              <Field
+                wrapperClassName="sm:col-span-5 sm:col-start-1 sm:row-start-2 xl:col-span-4"
+                label="Invoice Date"
+                name="invoiceDate"
+                type="date"
+                value={formData.invoiceDate}
+                onChange={onChange}
+                required
+              />
+              <Field
+                wrapperClassName="sm:col-span-3 sm:col-start-6 sm:row-start-2 xl:col-span-3 xl:col-start-5"
+                label="Validity (days)"
+                name="validityPeriod"
+                type="number"
+                value={formData.validityPeriod}
+                onChange={onChange}
+                required
+              />
+            </div>
+          )}
         </div>
       </div>
     </section>
@@ -112,7 +147,7 @@ const quotationOptions = quotations.map((quotation) => ({
 
 function ProposalField({ formData, options, onChange }) {
   return (
-    <label className="text-xs font-semibold text-stone-600">
+    <label className="block text-xs font-semibold text-stone-600">
       Proposal Reference
       <div className="mt-1.5">
         <Dropdown
@@ -120,6 +155,9 @@ function ProposalField({ formData, options, onChange }) {
           value={formData.proposalReference}
           options={options}
           onChange={onChange}
+          onClear={() => onChange({
+              target: { name: 'proposalReference', value: '' },
+            })}
           placeholder="Select quotation"
           emptyMessage="No quotations available"
         />

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Loader2, Pencil, Save } from 'lucide-react';
+import { ArrowLeft, Loader2, Pencil, Save, X } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import Button from '../../components/common/Button.jsx';
 import ConfirmationModal from '../../components/common/ConfirmationModal.jsx';
+import DeleteConfirmationModal from '../../components/common/DeleteConfirmationModal.jsx';
 import Toast from '../../components/common/Toast.jsx';
 import SerialNumberModal from '../../components/common/bills/SerialNumberModal.jsx';
 import PurchaseInformation from '../../components/purchase/PurchaseInformation.jsx';
@@ -137,6 +138,7 @@ const fromInventory = searchParams.get('from') === 'inventory';
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const [applyPreview, setApplyPreview] = useState(null);
   const [attachments, setAttachments] = useState([]);
   const [billFiles, setBillFiles] = useState([]);
@@ -145,6 +147,7 @@ const fromInventory = searchParams.get('from') === 'inventory';
  
   const [toast, setToast] = useState(null);
   const [validationMessage, setValidationMessage] = useState('');
+  const [showEditAttention, setShowEditAttention] = useState(false);
  
   const companyState = import.meta.env.VITE_COMPANY_STATE || 'Kerala';
  
@@ -1135,62 +1138,40 @@ const fromInventory = searchParams.get('from') === 'inventory';
   };
  
  
-  const handleCancel = async () => {
+  const handleCancel = () => {
+    if (draftId) {
+      setShowDiscardConfirm(true);
+      return;
+    }
+
+    navigate('/purchase');
+  };
+
+  const handleDiscardDraft = async () => {
+    if (!draftId || isSaving) return;
+
     try {
-      // Delete unfinished backend draft
-      if (draftId) {
-        const response =
-          await discardPurchaseDraft(
-            draftId
-          );
+      setIsSaving(true);
+      const response = await discardPurchaseDraft(draftId);
  
-        if (
-          response &&
-          response.success === false
-        ) {
-          throw new Error(
-            response.message ||
-              'Failed to discard draft.'
-          );
-        }
+      if (response?.success === false) {
+        throw new Error(
+          response.message || 'Failed to discard draft.'
+        );
       }
  
-      setFormData({
-        ...initialFormState,
- 
-        paymentTerms:
-          purchaseLookups
-            .paymentTerms[0]
-            ?.value || '',
- 
-        paymentType:
-          purchaseLookups
-            .paymentTypes[0]
-            ?.value || '',
- 
-        stateOfSupply: '',
-      });
- 
-      setItems([createEmptyItem()]);
- 
-      setSelectedTerms([]);
-      setSelectedItemId('');
- 
-      setDraftId(null);
-      setDraftVersion(null);
- 
-      setSaveStatus('saved');
- 
+      setShowDiscardConfirm(false);
+      navigate('/purchase');
     } catch (error) {
       console.error(error);
- 
- 
       showToast(
         error.response?.data?.message ||
           error.message ||
           'Failed to discard draft.',
         'error'
       );
+    } finally {
+      setIsSaving(false);
     }
   };
  
@@ -1203,6 +1184,7 @@ const fromInventory = searchParams.get('from') === 'inventory';
     saveStatus !== 'unsaved' ||
     isLoading ||
     isSaving ||
+    showDiscardConfirm ||
     !isEditing
   ) {
     return undefined;
@@ -1223,6 +1205,7 @@ const fromInventory = searchParams.get('from') === 'inventory';
   saveStatus,
   isLoading,
   isSaving,
+  showDiscardConfirm,
   isEditing,
 ]);
 
@@ -1232,9 +1215,24 @@ const fromInventory = searchParams.get('from') === 'inventory';
   const serialProduct = serialProducts.find(
     (item) => item.id === selectedItemId
   );
+  const editButtonLabel = selectedDraftId ? 'Edit Draft' : 'Edit Purchase';
+
+  const handleReadOnlyInteraction = (event) => {
+    if (isEditing || fromInventory || isLoading || isSaving) return;
+    if (event.target.closest('[data-edit-purchase-button]')) return;
+
+    setShowEditAttention(true);
+    setToast({
+      message: 'Click Edit to make changes.',
+      type: 'info',
+    });
+  };
 
   return (
-    <div className="relative flex flex-col gap-5 font-sans text-stone-800">
+    <div
+      className="relative flex flex-col gap-5 font-sans text-stone-800"
+      onPointerDownCapture={handleReadOnlyInteraction}
+    >
  
       <Toast
         toast={toast}
@@ -1300,6 +1298,7 @@ const fromInventory = searchParams.get('from') === 'inventory';
  
             <Button
               variant="outline"
+              icon={X}
               onClick={handleCancel}
               disabled={isSaving}
             >
@@ -1321,7 +1320,7 @@ const fromInventory = searchParams.get('from') === 'inventory';
             >
               {isSaving
                 ? 'Saving...'
-                : 'Save Purchase'}
+                : selectedPurchaseId ? 'Apply Changes' : 'Save Purchase'}
             </Button>
  
           </div>
@@ -1330,8 +1329,11 @@ const fromInventory = searchParams.get('from') === 'inventory';
               onClick={handleStartEditing}
               icon={isSaving ? Loader2 : Pencil}
               disabled={isSaving || isLoading}
+              data-edit-purchase-button
+              className={showEditAttention ? 'edit-invoice-attention' : ''}
+              onAnimationEnd={() => setShowEditAttention(false)}
             >
-              {isSaving ? 'Opening...' : 'Edit'}
+              {isSaving ? 'Opening...' : editButtonLabel}
             </Button>
           ) : null}
         </div>
@@ -1444,6 +1446,7 @@ const fromInventory = searchParams.get('from') === 'inventory';
  
         <Button
           variant="outline"
+          icon={X}
           className="flex-1"
           onClick={handleCancel}
           disabled={isSaving}
@@ -1467,17 +1470,42 @@ const fromInventory = searchParams.get('from') === 'inventory';
         >
           {isSaving
             ? 'Saving...'
-            : 'Save Purchase'}
+            : selectedPurchaseId ? 'Apply Changes' : 'Save Purchase'}
         </Button>
  
       </div>
+      )}
+
+      {!isEditing && !fromInventory && (
+        <div className="flex gap-2 xl:hidden">
+          <Button
+            variant="outline"
+            icon={X}
+            className="flex-1"
+            onClick={handleCancel}
+            disabled={isSaving}
+          >
+            Cancel
+          </Button>
+
+          <Button
+            icon={isSaving ? Loader2 : Pencil}
+            className={`flex-1 ${showEditAttention ? 'edit-invoice-attention' : ''}`}
+            onClick={handleStartEditing}
+            disabled={isSaving || isLoading}
+            data-edit-purchase-button
+            onAnimationEnd={() => setShowEditAttention(false)}
+          >
+            {isSaving ? 'Opening...' : editButtonLabel}
+          </Button>
+        </div>
       )}
  
       {showSaveConfirm && (
         <ConfirmationModal
           title={applyPreview?.requiresInventoryConfirmation
             ? 'Inventory Reconciliation Required'
-            : 'Save Purchase'}
+            : selectedPurchaseId ? 'Apply Purchase Changes' : 'Save Purchase'}
           message={getApplyConfirmationMessage()}
           confirmLabel={applyPreview?.requiresInventoryConfirmation
             ? 'Restore & Apply'
@@ -1488,6 +1516,20 @@ const fromInventory = searchParams.get('from') === 'inventory';
             setApplyPreview(null);
           }}
           onConfirm={handleConfirmSave}
+        />
+      )}
+
+      {showDiscardConfirm && (
+        <DeleteConfirmationModal
+          tone="brand"
+          title="Cancel Purchase Draft"
+          message="All changes saved in this draft will be permanently removed. Do you want to continue?"
+          cancelLabel="Keep Editing"
+          confirmLabel="Discard Draft"
+          submittingLabel="Discarding..."
+          isDeleting={isSaving}
+          onCancel={() => setShowDiscardConfirm(false)}
+          onConfirm={handleDiscardDraft}
         />
       )}
 

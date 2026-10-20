@@ -23,7 +23,7 @@ export default function Layout({ children }) {
         <Navbar onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)} />
 
         {/* Page Content Body */}
-        <main className="flex-grow p-6 md:p-8 overflow-y-auto">
+        <main className="app-scrollbar flex-grow p-6 md:p-8 overflow-y-auto">
           <div
             className={`mx-auto w-full transition-[max-width] duration-300 ${
               isSidebarCollapsed ? 'max-w-[1800px]' : 'max-w-[1600px]'

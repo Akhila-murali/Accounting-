@@ -49,17 +49,18 @@ export default function PurchaseTerms({
               onChange={onPaymentTypeChange}
               options={paymentTypes}
               placeholder="Select payment type"
+              menuPlacement="top"
             />
             {validationMessage?.toLowerCase().includes('payment type') && (
               <p className="mb-0 mt-1 text-[11px] text-red-500">{validationMessage}</p>
             )}
           </div>
 
-          <div className="max-w-72">
+          <div className="min-w-0 w-full">
             <label className="mb-1.5 block text-xs font-semibold text-stone-600">
               Upload Bill
             </label>
-            <label className="flex h-[42px] cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-stone-300 bg-stone-50/50 px-3 text-xs text-stone-500 transition-colors hover:border-[#c5a059] hover:text-[#8c6723]">
+            <label className="flex h-[42px] w-full max-w-72 cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-stone-300 bg-stone-50/50 px-3 text-xs text-stone-500 transition-colors hover:border-[#c5a059] hover:text-[#8c6723]">
               <Upload size={14} />
               <span className="truncate">
                 {billFiles.length > 0
@@ -75,11 +76,11 @@ export default function PurchaseTerms({
               />
             </label>
 
-            {billFiles.length > 0 && (
-              <div className="mt-2 flex items-center gap-2 overflow-x-auto pb-1">
+            {(billFiles.length > 0 || attachments.length > 0) && (
+              <div className="mt-2 flex w-full min-w-0 items-center gap-2 overflow-x-auto overscroll-x-contain pb-1">
                 {billFiles.map((file, index) => (
-                  <div key={`${file.name}-${file.lastModified}-${index}`} className="flex max-w-40 shrink-0 items-center gap-2 rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-600">
-                    <span className="truncate whitespace-nowrap" title={file.name}>
+                  <div key={`${file.name}-${file.lastModified}-${index}`} className="flex w-48 max-w-[75vw] shrink-0 items-center gap-2 rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-600">
+                    <span className="min-w-0 flex-1 truncate whitespace-nowrap" title={file.name}>
                       {file.name}
                     </span>
                     <button
@@ -93,14 +94,9 @@ export default function PurchaseTerms({
                     </button>
                   </div>
                 ))}
-              </div>
-            )}
-
-            {attachments.length > 0 && (
-              <div className="mt-2 space-y-1.5">
                 {attachments.map((file) => (
-                  <div key={file.id} className="flex items-center gap-2 rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-600">
-                    <span className="min-w-0 flex-1 truncate">{file.originalFileName}</span>
+                  <div key={file.id} className="flex w-48 max-w-[75vw] shrink-0 items-center gap-2 rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-600">
+                    <span className="min-w-0 flex-1 truncate" title={file.originalFileName}>{file.originalFileName}</span>
                     <button
                       type="button"
                       onClick={() => onDeleteAttachment(file)}
